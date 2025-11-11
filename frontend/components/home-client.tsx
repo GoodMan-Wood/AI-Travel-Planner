@@ -10,6 +10,8 @@ import { TripHistory } from "./trip-history";
 
 export function HomeClient() {
   const [session, setSession] = useState<Session | null>(null);
+  const [historyRefreshToken, setHistoryRefreshToken] = useState(0);
+  const [focusTripId, setFocusTripId] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -33,38 +35,94 @@ export function HomeClient() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!session) {
+      setHistoryRefreshToken(0);
+      setFocusTripId(null);
+    }
+  }, [session]);
+
   return (
-    <main className="flex flex-1 flex-col gap-10">
-      <section className="space-y-4">
-        <h1 className="text-4xl font-semibold">AI Travel Planner</h1>
-        <p className="text-lg text-slate-300">
-          使用语音或文字描述你的旅程需求，几分钟内生成个性化行程、预算和地图展示。
-        </p>
-        <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-400">
-          <p>试试：“我想去日本，5 天，预算 1 万元，喜欢美食和动漫，带孩子。”</p>
+    <div className="page-stack">
+      <header className="top-bar">
+        <div className="top-bar__inner">
+          <div className="top-bar__brand">
+            <span className="top-bar__logo">TravelMind</span>
+            <span className="top-bar__subtitle">AI 智能旅行规划</span>
+          </div>
+          <AuthPanel session={session} variant="nav" />
+        </div>
+      </header>
+
+      <main className="main-layout">
+        <section className="hero-card">
+        <div className="hero-card__grid">
+          <div className="space-y-5">
+            <span className="hero-badge">
+              智能旅行助手
+              <span style={{ width: 6, height: 6, borderRadius: "999px", background: "#60a5fa" }} />
+            </span>
+            <h1 style={{ fontSize: "3rem", lineHeight: 1.1, margin: 0 }}>更聪明地规划下一趟旅程</h1>
+            <p style={{ fontSize: "1.05rem", color: "#cbd5f5", maxWidth: "36rem" }}>
+              描述旅程意向与预算，AI 即刻生成行程、费用拆分和支出记录工具，让旅行准备像发送消息一样简单。
+            </p>
+            <div className="planner-toolbar">
+              <a href="#planner" className="hero-cta">
+                立即生成行程
+              </a>
+              <div className="hero-stats">
+                <div>
+                  <p style={{ fontSize: "1.25rem", fontWeight: 600, color: "#f8fafc" }}>2 分钟</p>
+                  <p style={{ color: "#cbd5f5", fontSize: "0.85rem" }}>生成多日行程计划</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: "1.25rem", fontWeight: 600, color: "#f8fafc" }}>多终端</p>
+                  <p style={{ color: "#cbd5f5", fontSize: "0.85rem" }}>云端同步随时查看</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: "1.25rem", fontWeight: 600, color: "#f8fafc" }}>预算</p>
+                  <p style={{ color: "#cbd5f5", fontSize: "0.85rem" }}>实时记录每一笔支出</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="hero-preview">
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem", color: "#cbd5f5" }}>
+              <div>
+                <p style={{ fontSize: "0.7rem", letterSpacing: "0.35em", textTransform: "uppercase", color: "#64748b" }}>
+                  工作流预览
+                </p>
+                <h2 style={{ marginTop: "0.5rem", fontSize: "1.5rem", color: "#e2e8f0" }}>规划 → 预算 → 管理</h2>
+              </div>
+              <ul style={{ display: "grid", gap: "0.8rem", fontSize: "0.9rem", lineHeight: 1.4 }}>
+                <li>语音或文字输入旅程灵感，自动解析重点需求。</li>
+                <li>一键生成每日行程与预算拆分，支持自定义调整。</li>
+                <li>实时记录费用，随时查看剩余预算与开支趋势。</li>
+              </ul>
+            </div>
+          </div>
         </div>
       </section>
 
-      <AuthPanel session={session} />
-
-      <PlannerForm userId={session?.user.id ?? null} />
-
-  <TripHistory userId={session?.user.id ?? null} />
-
-      <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-6">
-        <h2 className="text-2xl font-semibold">接下来</h2>
-        <ul className="mt-3 list-disc space-y-2 pl-6 text-slate-300">
-          <li>登录后可以保存和同步旅行计划（即将上线）。</li>
-          <li>地图视图将在后续迭代中呈现分日行程路线。</li>
-          <li>
-            了解更多请查看
-            <a href="/docs" className="ml-1 underline">
-              产品文档
-            </a>
-            。
-          </li>
-        </ul>
-      </section>
-    </main>
+        <section id="planner" className="planner-section">
+          <div className="planner-stack">
+            <PlannerForm
+              userId={session?.user.id ?? null}
+              onPlanCreated={(tripId) => {
+                setHistoryRefreshToken((prev) => prev + 1);
+                if (tripId) {
+                  setFocusTripId(tripId);
+                }
+              }}
+            />
+            <TripHistory
+              userId={session?.user.id ?? null}
+              refreshToken={historyRefreshToken}
+              focusTripId={focusTripId}
+            />
+          </div>
+        </section>
+      </main>
+    </div>
   );
 }

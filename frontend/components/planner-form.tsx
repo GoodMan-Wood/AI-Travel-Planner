@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import axios from "axios";
 import clsx from "clsx";
 
@@ -14,17 +14,64 @@ interface PlannerResponse {
   tripId?: string | null;
 }
 
-const PLACEHOLDER_INPUT = "我想去日本，5 天，预算 1 万元，喜欢美食和动漫，带孩子";
-
 interface PlannerFormProps {
   userId: string | null;
+  onPlanCreated?: (tripId: string | null) => void;
 }
 
-export function PlannerForm({ userId }: PlannerFormProps) {
+const PLACEHOLDER_INPUT = "我想去日本，5 天，预算 1 万元，喜欢美食和动漫，带孩子";
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
+
+type SpeechRecognitionInstance = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onresult: ((event: any) => void) | null;
+  onerror: ((event: any) => void) | null;
+  onend: (() => void) | null;
+};
+
+function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const anyWindow = window as typeof window & {
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    SpeechRecognition?: SpeechRecognitionConstructor;
+  };
+
+  return anyWindow.SpeechRecognition ?? anyWindow.webkitSpeechRecognition ?? null;
+}
+
+export function PlannerForm({ userId, onPlanCreated }: PlannerFormProps) {
   const [intent, setIntent] = useState(PLACEHOLDER_INPUT);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PlannerResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [isSecureContext, setIsSecureContext] = useState(true);
+
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setSpeechSupported(Boolean(getSpeechRecognitionConstructor()));
+      setIsSecureContext(window.isSecureContext || window.location.hostname === "localhost");
+    }
+
+    return () => {
+      recognitionRef.current?.abort();
+      recognitionRef.current = null;
+    };
+  }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -37,6 +84,7 @@ export function PlannerForm({ userId }: PlannerFormProps) {
         userId: userId ?? undefined
       });
       setResult(response.data);
+      onPlanCreated?.(response.data.tripId ?? null);
     } catch (err) {
       setError("暂时无法生成行程，请稍后再试。");
       console.error(err);
@@ -45,74 +93,171 @@ export function PlannerForm({ userId }: PlannerFormProps) {
     }
   };
 
+  const handleStartListening = () => {
+    if (isListening) {
+      return;
+    }
+
+    if (!isSecureContext) {
+      setVoiceError("Web Speech API 需在 HTTPS 或 localhost 环境下使用。");
+      return;
+    }
+
+    const RecognitionCtor = getSpeechRecognitionConstructor();
+    if (!RecognitionCtor) {
+      setVoiceError("当前浏览器不支持 Web Speech API 语音识别。");
+      return;
+    }
+
+    setVoiceError(null);
+
+    const recognition = new RecognitionCtor();
+    recognition.lang = "zh-CN";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (event: any) => {
+      const collected = Array.from(event.results ?? [])
+        .map((result: any) => result[0]?.transcript ?? "")
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+
+      if (collected) {
+        setIntent((prev) => (prev ? `${prev.trim()} ${collected}`.trim() : collected));
+      } else {
+        setVoiceError("未识别到有效语音内容，请重试。");
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      const reason = event.error === "not-allowed"
+        ? "麦克风权限被拒绝，请检查浏览器设置。"
+        : event.error === "no-speech"
+          ? "未检测到语音，请重试。"
+          : "语音识别失败，请稍后再试。";
+      setVoiceError(reason);
+      setIsListening(false);
+      try {
+        recognition.stop();
+      } catch (stopError) {
+        console.warn("Failed to stop recognition after error", stopError);
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+
+    try {
+      recognition.start();
+      recognitionRef.current = recognition;
+      setIsListening(true);
+    } catch (err) {
+      console.error(err);
+      setVoiceError("无法启动语音识别，请稍后再试。");
+      recognitionRef.current = null;
+      setIsListening(false);
+    }
+  };
+
+  const handleStopListening = () => {
+    const recognition = recognitionRef.current;
+    if (!recognition) {
+      return;
+    }
+
+    recognition.stop();
+    setIsListening(false);
+  };
+
   return (
-    <div className="space-y-6">
-      <form
-        onSubmit={handleSubmit}
-        className="space-y-4 rounded-lg border border-slate-800 bg-slate-900/40 p-6"
-      >
-        <label className="block text-sm font-medium text-slate-300" htmlFor="intent">
-          描述你的旅行计划
-        </label>
-        <textarea
-          id="intent"
-          name="intent"
-          value={intent}
-          onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setIntent(event.target.value)}
-          rows={4}
-          className="w-full rounded-md border border-slate-700 bg-slate-950/80 p-3 text-slate-50 shadow focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
-          placeholder={PLACEHOLDER_INPUT}
-          disabled={loading}
-        />
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            className={clsx(
-              "rounded-md bg-brand-500 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-brand-400",
-              loading && "cursor-not-allowed opacity-70"
-            )}
+    <div className="planner-module">
+      <form onSubmit={handleSubmit} className="planner-card">
+        <div className="planner-card__content">
+          <header className="planner-card__header">
+            <div>
+              <p className="planner-card__eyebrow">STEP · 01</p>
+              <h2 className="planner-card__title">描述你的旅行计划</h2>
+            </div>
+            <p className="planner-card__description">
+              输入想去的地点、行程天数、预算以及偏好，我们将即时为你组合每日路线、预算拆分与支出规划。
+            </p>
+          </header>
+          <textarea
+            id="intent"
+            name="intent"
+            value={intent}
+            onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setIntent(event.target.value)}
+            rows={5}
+            className="planner-card__textarea"
+            placeholder={PLACEHOLDER_INPUT}
             disabled={loading}
-          >
-            {loading ? "生成中..." : "生成行程"}
-          </button>
-          <span className="text-xs text-slate-500">
-            语音输入将在后续迭代接入科大讯飞识别。
-          </span>
+          />
+          <div className="planner-card__actions">
+            <button
+              type="submit"
+              className={clsx("planner-card__submit", loading && "is-loading")}
+              disabled={loading}
+            >
+              {loading ? "生成中..." : "生成行程方案"}
+            </button>
+            <button
+              type="button"
+              onClick={isListening ? handleStopListening : handleStartListening}
+              className={clsx(
+                "planner-card__mic",
+                isListening && "is-recording",
+                (!speechSupported || !isSecureContext) && "is-disabled"
+              )}
+              disabled={loading || !speechSupported || !isSecureContext}
+            >
+              {isListening ? "结束录音" : "语音输入"}
+            </button>
+            <span className="planner-card__hint">
+              {isListening
+                ? "语音识别中，请开始讲话..."
+                : !isSecureContext
+                  ? "请通过 HTTPS 或在 localhost 下使用语音识别"
+                  : !speechSupported
+                    ? "当前浏览器暂不支持 Web Speech API"
+                    : "支持语音或文字描述旅程意向"}
+            </span>
+          </div>
+          {voiceError ? <p className="planner-card__voice-error">{voiceError}</p> : null}
         </div>
       </form>
 
-      {error ? (
-        <div className="rounded-md border border-red-500/60 bg-red-950/40 p-4 text-sm text-red-200">
-          {error}
-        </div>
-      ) : null}
+      {error ? <div className="planner-error">{error}</div> : null}
 
       {result ? (
-        <div className="space-y-4 rounded-lg border border-slate-800 bg-slate-900/40 p-6">
-          <section>
-            <h3 className="text-xl font-semibold">AI 行程建议</h3>
-            {result.tripId ? (
-              <p className="mt-1 text-xs text-brand-300">
-                已保存至云端，编号：{result.tripId}
-              </p>
-            ) : null}
-            <pre className="mt-2 whitespace-pre-wrap text-sm text-slate-200">{result.itinerary}</pre>
+        <div className="planner-output">
+          <section className="planner-output__panel">
+            <div className="planner-output__heading">
+              <h3>AI 行程建议</h3>
+              {result.tripId ? <span className="planner-output__badge">已保存：{result.tripId}</span> : null}
+            </div>
+            <pre className="planner-output__itinerary">{result.itinerary}</pre>
           </section>
-          <section>
-            <h3 className="text-xl font-semibold">预算概览</h3>
-            <p className="mt-1 text-sm text-slate-300">
-              总预算：{result.budget.total} {result.budget.currency}
-            </p>
-            <ul className="mt-3 space-y-1 text-sm text-slate-300">
-              {result.budget.breakdown.map((item) => (
-                <li key={item.category} className="flex justify-between">
-                  <span>{item.category}</span>
-                  <span>
-                    {item.amount} {result.budget.currency}
-                  </span>
-                </li>
-              ))}
-            </ul>
+          <section className="planner-output__panel planner-output__panel--accent">
+            <h3>预算概览</h3>
+            <div className="planner-output__budget">
+              <p className="planner-output__total">
+                总预算：{result.budget.total} {result.budget.currency}
+              </p>
+              <ul className="planner-output__breakdown">
+                {result.budget.breakdown.map((item) => (
+                  <li key={item.category}>
+                    <span>{item.category}</span>
+                    <span>
+                      {item.amount} {result.budget.currency}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </section>
         </div>
       ) : null}

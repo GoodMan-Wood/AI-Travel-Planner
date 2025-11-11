@@ -9,9 +9,6 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     openai_api_key: str | None = None
-    iflytek_app_id: str | None = None
-    iflytek_api_key: str | None = None
-    iflytek_api_secret: str | None = None
     supabase_url: str | None = None
     supabase_service_role_key: str | None = None
     supabase_jwt_secret: str | None = None

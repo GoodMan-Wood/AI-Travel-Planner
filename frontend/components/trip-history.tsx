@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import axios from "axios";
+import clsx from "clsx";
 
 interface BudgetBreakdownEntry {
   category?: string;
@@ -44,9 +45,11 @@ interface ExpenseDraft {
 
 interface TripHistoryProps {
   userId: string | null;
+  refreshToken?: number;
+  focusTripId?: string | null;
 }
 
-export function TripHistory({ userId }: TripHistoryProps) {
+export function TripHistory({ userId, refreshToken = 0, focusTripId = null }: TripHistoryProps) {
   const [trips, setTrips] = useState<TripSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +67,7 @@ export function TripHistory({ userId }: TripHistoryProps) {
   });
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<ExpenseDraft | null>(null);
+  const selectedTripId = selectedTrip?.id ?? null;
 
   useEffect(() => {
     const loadTrips = async () => {
@@ -81,6 +85,30 @@ export function TripHistory({ userId }: TripHistoryProps) {
           params: { userId }
         });
         setTrips(response.data);
+
+        if (selectedTripId) {
+          const matched = response.data.find((trip) => trip.id === selectedTripId);
+          if (matched) {
+            setSelectedTrip((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    title: matched.title,
+                    intent: matched.intent,
+                    total_budget: matched.total_budget,
+                    currency: matched.currency,
+                    budget_breakdown: matched.budget_breakdown,
+                    total_expenses: matched.total_expenses,
+                    remaining_budget:
+                      matched.remaining_budget ??
+                      (matched.total_budget != null && matched.total_expenses != null
+                        ? matched.total_budget - matched.total_expenses
+                        : matched.total_budget ?? null)
+                  }
+                : prev
+            );
+          }
+        }
       } catch (err) {
         console.error(err);
         setError("暂时无法获取行程历史。");
@@ -89,14 +117,9 @@ export function TripHistory({ userId }: TripHistoryProps) {
       }
     };
 
-    loadTrips();
-  }, [userId]);
-
-  if (!userId) {
-    return null;
-  }
-
-  const handleViewDetail = async (trip: TripSummary) => {
+    void loadTrips();
+  }, [userId, refreshToken, selectedTripId]);
+  const handleViewDetail = useCallback(async (trip: TripSummary) => {
     setSelectedTrip({
       ...trip,
       generated_itinerary: null,
@@ -137,7 +160,27 @@ export function TripHistory({ userId }: TripHistoryProps) {
     } finally {
       setExpensesLoading(false);
     }
-  };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!focusTripId || focusTripId === selectedTripId || trips.length === 0) {
+      return;
+    }
+
+    const targetTrip = trips.find((trip) => trip.id === focusTripId);
+    if (targetTrip) {
+      void handleViewDetail(targetTrip);
+    }
+  }, [focusTripId, trips, handleViewDetail, selectedTripId]);
+
+  if (!userId) {
+    return (
+      <section className="overflow-hidden rounded-3xl border border-slate-800/60 bg-slate-900/60 p-8 text-center shadow-lg shadow-slate-950/40">
+        <h2 className="text-2xl font-semibold text-slate-100">历史行程</h2>
+        <p className="mt-3 text-sm text-slate-400">登录后即可同步并管理你生成的所有行程计划。</p>
+      </section>
+    );
+  }
 
   const applyExpenseDelta = (delta: number) => {
     setSelectedTrip((prev) => {
@@ -276,281 +319,317 @@ export function TripHistory({ userId }: TripHistoryProps) {
   };
 
   return (
-    <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-semibold">历史行程</h2>
-        {loading ? <span className="text-xs text-slate-500">加载中...</span> : null}
-      </div>
-      {error ? <p className="mt-3 text-xs text-red-300">{error}</p> : null}
-      {!error && trips.length === 0 && !loading ? (
-        <p className="mt-3 text-sm text-slate-400">暂时没有历史行程。</p>
-      ) : null}
-      <ul className="mt-4 space-y-3">
-        {trips.map((trip) => (
-          <li key={trip.id} className="rounded-md border border-slate-800 bg-slate-950/40 p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-100">{trip.title}</h3>
-              <span className="text-xs text-slate-500">
-                {new Date(trip.created_at).toLocaleString("zh-CN", {
-                  hour12: false
-                })}
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-slate-400 overflow-hidden text-ellipsis whitespace-nowrap">
-              {trip.intent}
-            </p>
-            {trip.total_budget != null ? (
-              <p className="mt-2 text-xs text-slate-300">
-                预算：{trip.total_budget} {trip.currency ?? "CNY"}
-              </p>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => handleViewDetail(trip)}
-              className="mt-3 text-xs font-semibold text-brand-300 underline"
-            >
-              查看详情
-            </button>
-          </li>
-        ))}
-      </ul>
-
-      {selectedTrip ? (
-        <div className="mt-6 space-y-3 rounded-md border border-brand-500/40 bg-slate-950/60 p-5">
-          <div className="flex items-start justify-between">
-            <div>
-              <h3 className="text-xl font-semibold text-brand-200">{selectedTrip.title}</h3>
-              <p className="mt-1 text-xs text-slate-500">
-                创建于：
-                {new Date(selectedTrip.created_at).toLocaleString("zh-CN", { hour12: false })}
-              </p>
-              {selectedTrip.updated_at ? (
-                <p className="text-xs text-slate-500">
-                  更新于：
-                  {new Date(selectedTrip.updated_at).toLocaleString("zh-CN", { hour12: false })}
-                </p>
-              ) : null}
-              <div className="mt-2 space-y-1 text-xs text-slate-300">
-                {selectedTrip.total_budget != null ? (
-                  <p>
-                    总预算：{selectedTrip.total_budget} {selectedTrip.currency ?? "CNY"}
-                  </p>
-                ) : null}
-                {selectedTrip.total_expenses != null ? (
-                  <p>已花费：{selectedTrip.total_expenses}</p>
-                ) : null}
-                {selectedTrip.remaining_budget != null ? (
-                  <p>剩余预算：{selectedTrip.remaining_budget}</p>
-                ) : null}
-              </div>
-              {selectedTrip.budget_breakdown && selectedTrip.budget_breakdown.length > 0 ? (
-                <div className="mt-3 text-xs text-slate-400">
-                  <p className="font-semibold text-slate-300">预算拆分</p>
-                  <ul className="mt-1 space-y-1">
-                    {selectedTrip.budget_breakdown.map((item, index) => (
-                      <li key={`${item.category ?? "未知"}-${index}`}>
-                        {(item.category ?? "未知").trim() || "未知"}：{item.amount ?? 0}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedTrip(null);
-                setDetailError(null);
-                setExpenses([]);
-                setExpenseError(null);
-                resetEditState();
-              }}
-              className="text-xs text-slate-400 underline"
-            >
-              收起
-            </button>
+    <section className="card card--muted">
+      <div className="history-shell">
+  <aside className="summary-box">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold text-slate-100">历史行程</h2>
+            {loading ? <span className="text-[11px] text-slate-500">加载中...</span> : null}
           </div>
-          {detailLoading ? <p className="text-xs text-slate-400">详情加载中...</p> : null}
-          {detailError ? <p className="text-xs text-red-300">{detailError}</p> : null}
-          {!detailLoading && !detailError ? (
-            <pre className="whitespace-pre-wrap text-sm text-slate-200">
-              {selectedTrip.generated_itinerary ?? "暂无行程详情"}
-            </pre>
+          {error ? <p className="mt-3 text-xs text-red-300">{error}</p> : null}
+          {!error && trips.length === 0 && !loading ? (
+            <p className="mt-4 rounded-lg border border-dashed border-slate-700/70 bg-slate-900/80 p-4 text-xs text-slate-400">
+              暂时没有历史行程，生成的行程会自动显示在这里。
+            </p>
           ) : null}
 
-          <div className="mt-4 space-y-2">
-            <h4 className="text-lg font-semibold text-brand-200">费用记录</h4>
-            {expensesLoading ? <p className="text-xs text-slate-400">费用加载中...</p> : null}
-            {expenseError ? <p className="text-xs text-red-300">{expenseError}</p> : null}
+          <ul className="history-list mt-4">
+            {trips.map((trip) => {
+              const isActive = trip.id === selectedTripId;
+              return (
+                <li key={trip.id}>
+                  <button
+                    type="button"
+                    onClick={() => handleViewDetail(trip)}
+                    className={clsx("history-item", isActive && "is-active")}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-sm font-semibold line-clamp-1">{trip.title}</h3>
+                      <span className="text-[10px] text-slate-400">
+                        {new Date(trip.created_at).toLocaleDateString("zh-CN")}
+                      </span>
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-[11px] text-slate-400">
+                      {trip.intent}
+                    </p>
+                    {trip.total_budget != null ? (
+                      <p className="mt-2 text-[11px] text-slate-400">
+                        预算：{trip.total_budget} {trip.currency ?? "CNY"}
+                      </p>
+                    ) : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </aside>
 
-            <form onSubmit={handleExpenseSubmit} className="grid gap-2 md:grid-cols-5">
-              <input
-                type="text"
-                value={draft.category}
-                onChange={(event) => setDraft((prev) => ({ ...prev, category: event.target.value }))}
-                className="rounded-md border border-slate-700 bg-slate-950/70 p-2 text-xs text-slate-100 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-                placeholder="分类"
-              />
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={draft.amount}
-                onChange={(event) => setDraft((prev) => ({ ...prev, amount: event.target.value }))}
-                className="rounded-md border border-slate-700 bg-slate-950/70 p-2 text-xs text-slate-100 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-                placeholder="金额"
-              />
-              <input
-                type="text"
-                value={draft.currency}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, currency: event.target.value.toUpperCase().slice(0, 3) }))
-                }
-                className="rounded-md border border-slate-700 bg-slate-950/70 p-2 text-xs text-slate-100 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-                placeholder="币种"
-              />
-              <input
-                type="date"
-                value={draft.occurredOn}
-                onChange={(event) => setDraft((prev) => ({ ...prev, occurredOn: event.target.value }))}
-                className="rounded-md border border-slate-700 bg-slate-950/70 p-2 text-xs text-slate-100 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-              />
-              <button
-                type="submit"
-                className="rounded-md bg-brand-500 px-3 py-2 text-xs font-semibold text-white shadow transition hover:bg-brand-400"
-              >
-                新增
-              </button>
-            </form>
+        <div className="relative flex flex-col gap-6">
+          {selectedTrip ? (
+            <>
+              <div className="summary-box">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.3em] text-slate-500">行程详情</p>
+                    <h3 className="mt-2 text-2xl font-semibold text-slate-100">{selectedTrip.title}</h3>
+                    <p className="mt-2 text-xs text-slate-400">
+                      创建于 {new Date(selectedTrip.created_at).toLocaleString("zh-CN", { hour12: false })}
+                    </p>
+                    {selectedTrip.updated_at ? (
+                      <p className="text-xs text-slate-400">
+                        更新于 {new Date(selectedTrip.updated_at).toLocaleString("zh-CN", { hour12: false })}
+                      </p>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedTrip(null);
+                      setDetailError(null);
+                      setExpenses([]);
+                      setExpenseError(null);
+                      resetEditState();
+                    }}
+                    className="self-start rounded-full border border-slate-700/60 px-4 py-1 text-xs text-slate-300 transition hover:border-brand-400/60 hover:text-brand-200"
+                  >
+                    收起
+                  </button>
+                </div>
 
-            <ul className="space-y-2">
-              {expenses.map((expense) => {
-                const occurredDate = expense.occurredOn ?? expense.occurred_on ?? null;
-                const displayDate = occurredDate
-                  ? new Date(occurredDate).toLocaleDateString("zh-CN")
-                  : new Date(expense.created_at).toLocaleDateString("zh-CN");
+                <div className="detail-cards mt-6">
+                  {selectedTrip.total_budget != null ? (
+                    <div className="detail-metrics">
+                      <p className="text-xs text-slate-400">总预算</p>
+                      <p className="mt-1 text-lg font-semibold text-slate-100">
+                        {selectedTrip.total_budget} {selectedTrip.currency ?? "CNY"}
+                      </p>
+                    </div>
+                  ) : null}
+                  <div className="detail-metrics">
+                    <p className="text-xs text-slate-400">已花费</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-100">
+                      {selectedTrip.total_expenses ?? 0}
+                    </p>
+                  </div>
+                  <div className="detail-metrics">
+                    <p className="text-xs text-slate-400">剩余预算</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-100">
+                      {selectedTrip.remaining_budget ?? "—"}
+                    </p>
+                  </div>
+                </div>
 
-                if (editingExpenseId === expense.id && editDraft) {
-                  return (
-                    <li
-                      key={expense.id}
-                      className="rounded-md border border-brand-500/40 bg-slate-900/60 p-3 text-xs text-slate-200"
-                    >
-                      <form
-                        onSubmit={(event) => handleExpenseUpdate(event, expense)}
-                        className="grid gap-2 md:grid-cols-5"
-                      >
-                        <input
-                          type="text"
-                          value={editDraft.category}
-                          onChange={(event) =>
-                            setEditDraft((prev) =>
-                              prev
-                                ? { ...prev, category: event.target.value }
-                                : null
-                            )
-                          }
-                          className="rounded-md border border-slate-700 bg-slate-950/70 p-2 text-xs text-slate-100 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-                          placeholder="分类"
-                        />
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={editDraft.amount}
-                          onChange={(event) =>
-                            setEditDraft((prev) =>
-                              prev
-                                ? { ...prev, amount: event.target.value }
-                                : null
-                            )
-                          }
-                          className="rounded-md border border-slate-700 bg-slate-950/70 p-2 text-xs text-slate-100 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-                          placeholder="金额"
-                        />
-                        <input
-                          type="text"
-                          value={editDraft.currency}
-                          onChange={(event) =>
-                            setEditDraft((prev) =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    currency: event.target.value.toUpperCase().slice(0, 3)
-                                  }
-                                : null
-                            )
-                          }
-                          className="rounded-md border border-slate-700 bg-slate-950/70 p-2 text-xs text-slate-100 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-                          placeholder="币种"
-                        />
-                        <input
-                          type="date"
-                          value={editDraft.occurredOn}
-                          onChange={(event) =>
-                            setEditDraft((prev) =>
-                              prev
-                                ? { ...prev, occurredOn: event.target.value }
-                                : null
-                            )
-                          }
-                          className="rounded-md border border-slate-700 bg-slate-950/70 p-2 text-xs text-slate-100 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-                        />
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="submit"
-                            className="rounded-md bg-brand-500 px-3 py-2 text-xs font-semibold text-white shadow transition hover:bg-brand-400"
+                {selectedTrip.budget_breakdown && selectedTrip.budget_breakdown.length > 0 ? (
+                  <div className="summary-box mt-6">
+                    <p className="text-xs text-slate-400">预算拆分</p>
+                    <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+                      {selectedTrip.budget_breakdown.map((item, index) => (
+                        <li
+                          key={`${item.category ?? "未知"}-${index}`}
+                          className="flex items-center justify-between rounded-xl bg-slate-950/80 px-3 py-2 text-xs text-slate-300"
+                        >
+                          <span>{(item.category ?? "未知").trim() || "未知"}</span>
+                          <span>{item.amount ?? 0}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="summary-box">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h4 className="text-lg font-semibold text-slate-100">AI 行程摘要</h4>
+                    {detailLoading ? <p className="text-xs text-slate-400">详情加载中...</p> : null}
+                    {detailError ? <p className="text-xs text-red-300">{detailError}</p> : null}
+                  </div>
+                </div>
+                {!detailLoading && !detailError ? (
+                  <pre className="mt-4 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-2xl border border-slate-800/50 bg-slate-900/70 p-4 text-sm leading-relaxed text-slate-200">
+                    {selectedTrip.generated_itinerary ?? "暂无行程详情"}
+                  </pre>
+                ) : null}
+              </div>
+
+              <div className="summary-box">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <h4 className="text-lg font-semibold text-slate-100">费用记录</h4>
+                  {expensesLoading ? <p className="text-xs text-slate-400">费用加载中...</p> : null}
+                  {expenseError ? <p className="text-xs text-red-300">{expenseError}</p> : null}
+                </div>
+
+                <form onSubmit={handleExpenseSubmit} className="expense-form-grid mt-4">
+                  <input
+                    type="text"
+                    value={draft.category}
+                    onChange={(event) => setDraft((prev) => ({ ...prev, category: event.target.value }))}
+                    className="border border-slate-700/70 bg-slate-950/80 p-3 text-xs text-slate-100 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                    placeholder="分类"
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={draft.amount}
+                    onChange={(event) => setDraft((prev) => ({ ...prev, amount: event.target.value }))}
+                    className="border border-slate-700/70 bg-slate-950/80 p-3 text-xs text-slate-100 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                    placeholder="金额"
+                  />
+                  <input
+                    type="text"
+                    value={draft.currency}
+                    onChange={(event) =>
+                      setDraft((prev) => ({ ...prev, currency: event.target.value.toUpperCase().slice(0, 3) }))
+                    }
+                    className="border border-slate-700/70 bg-slate-950/80 p-3 text-xs text-slate-100 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                    placeholder="币种"
+                  />
+                  <input
+                    type="date"
+                    value={draft.occurredOn}
+                    onChange={(event) => setDraft((prev) => ({ ...prev, occurredOn: event.target.value }))}
+                    className="border border-slate-700/70 bg-slate-950/80 p-3 text-xs text-slate-100 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-full bg-brand-500 px-4 py-2 text-xs font-semibold text-white shadow transition hover:-translate-y-0.5 hover:bg-brand-400"
+                  >
+                    新增
+                  </button>
+                </form>
+
+                <ul className="expense-list mt-4">
+                  {expenses.map((expense) => {
+                    const occurredDate = expense.occurredOn ?? expense.occurred_on ?? null;
+                    const displayDate = occurredDate
+                      ? new Date(occurredDate).toLocaleDateString("zh-CN")
+                      : new Date(expense.created_at).toLocaleDateString("zh-CN");
+
+                    if (editingExpenseId === expense.id && editDraft) {
+                      return (
+                        <li
+                          key={expense.id}
+                          className="expense-card border-brand-400/60 bg-brand-400/15 text-xs text-slate-100"
+                        >
+                          <form
+                            onSubmit={(event) => handleExpenseUpdate(event, expense)}
+                            className="expense-form-grid"
                           >
-                            保存
+                            <input
+                              type="text"
+                              value={editDraft.category}
+                              onChange={(event) =>
+                                setEditDraft((prev) =>
+                                  prev
+                                    ? { ...prev, category: event.target.value }
+                                    : null
+                                )
+                              }
+                              className="rounded-xl border border-slate-200/40 bg-slate-950/30 p-3 text-xs text-slate-100 focus:border-brand-200 focus:outline-none focus:ring-1 focus:ring-brand-200"
+                              placeholder="分类"
+                            />
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={editDraft.amount}
+                              onChange={(event) =>
+                                setEditDraft((prev) =>
+                                  prev
+                                    ? { ...prev, amount: event.target.value }
+                                    : null
+                                )
+                              }
+                              className="rounded-xl border border-slate-200/40 bg-slate-950/30 p-3 text-xs text-slate-100 focus:border-brand-200 focus:outline-none focus:ring-1 focus:ring-brand-200"
+                              placeholder="金额"
+                            />
+                            <input
+                              type="text"
+                              value={editDraft.currency}
+                              onChange={(event) =>
+                                setEditDraft((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        currency: event.target.value.toUpperCase().slice(0, 3)
+                                      }
+                                    : null
+                                )
+                              }
+                              className="rounded-xl border border-slate-200/40 bg-slate-950/30 p-3 text-xs text-slate-100 focus:border-brand-200 focus:outline-none focus:ring-1 focus:ring-brand-200"
+                              placeholder="币种"
+                            />
+                            <input
+                              type="date"
+                              value={editDraft.occurredOn}
+                              onChange={(event) =>
+                                setEditDraft((prev) =>
+                                  prev
+                                    ? { ...prev, occurredOn: event.target.value }
+                                    : null
+                                )
+                              }
+                              className="rounded-xl border border-slate-200/40 bg-slate-950/30 p-3 text-xs text-slate-100 focus:border-brand-200 focus:outline-none focus:ring-1 focus:ring-brand-200"
+                            />
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="submit"
+                                className="rounded-full bg-white/90 px-4 py-2 text-xs font-semibold text-slate-900 transition hover:bg-white"
+                              >
+                                保存
+                              </button>
+                              <button
+                                type="button"
+                                onClick={resetEditState}
+                                className="rounded-full border border-slate-200/60 px-4 py-2 text-xs text-slate-100 hover:border-white/80"
+                              >
+                                取消
+                              </button>
+                            </div>
+                          </form>
+                        </li>
+                      );
+                    }
+
+                    return (
+                      <li key={expense.id} className="expense-card">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-100">{expense.category}</p>
+                          <p className="text-slate-400">
+                            {expense.amount} {expense.currency}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3 text-slate-400">
+                          <span>{displayDate}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleStartEdit(expense)}
+                            className="rounded-full px-3 py-1 text-[11px] text-brand-300 transition hover:bg-brand-400/10"
+                          >
+                            编辑
                           </button>
                           <button
                             type="button"
-                            onClick={resetEditState}
-                            className="rounded-md border border-slate-600 px-3 py-2 text-xs text-slate-200 hover:border-slate-500"
+                            onClick={() => handleExpenseDelete(expense)}
+                            className="rounded-full px-3 py-1 text-[11px] text-red-300 transition hover:bg-red-500/10"
                           >
-                            取消
+                            删除
                           </button>
                         </div>
-                      </form>
-                    </li>
-                  );
-                }
-
-                return (
-                  <li
-                    key={expense.id}
-                    className="flex flex-col gap-2 rounded-md border border-slate-800 bg-slate-900/40 p-3 text-xs text-slate-200 md:flex-row md:items-center md:justify-between"
-                  >
-                    <div>
-                      <p className="font-semibold">{expense.category}</p>
-                      <p className="text-slate-400">
-                        {expense.amount} {expense.currency}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-slate-500">{displayDate}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleStartEdit(expense)}
-                        className="text-brand-300 hover:underline"
-                      >
-                        编辑
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleExpenseDelete(expense)}
-                        className="text-red-300 hover:underline"
-                      >
-                        删除
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </>
+          ) : (
+            <div className="flex h-full min-h-[18rem] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-800/60 bg-slate-950/50 p-10 text-center text-sm text-slate-400">
+              <p>点击左侧行程即可查看详情、预算以及对应的费用记录。</p>
+            </div>
+          )}
         </div>
-      ) : null}
+      </div>
     </section>
   );
 }
