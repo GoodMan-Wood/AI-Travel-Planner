@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
-from app.schemas.expense import ExpenseCreate, ExpenseResponse, ExpenseUpdate
+from app.schemas.expense import (
+    ExpenseCreate,
+    ExpenseParseRequest,
+    ExpenseParseResponse,
+    ExpenseResponse,
+    ExpenseUpdate,
+)
+from app.services.expense_parser import ExpenseParserService, get_expense_parser_service
 from app.services.trip_repository import TripRepository, get_trip_repository
 
 router = APIRouter()
@@ -42,6 +49,14 @@ async def create_expense(
         raise HTTPException(status_code=404, detail="Trip not found")
 
     return expense
+
+
+@router.post("/parse", response_model=ExpenseParseResponse)
+async def parse_expense_text(
+    payload: ExpenseParseRequest,
+    service: ExpenseParserService = Depends(get_expense_parser_service),
+) -> ExpenseParseResponse:
+    return await service.parse(payload)
 
 
 @router.patch("/{expense_id}", response_model=ExpenseResponse)

@@ -1,8 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import axios from "axios";
 import clsx from "clsx";
+
+import {
+  getSpeechRecognitionConstructor,
+  isSecureSpeechContext,
+  type SpeechRecognitionInstance,
+} from "../lib/speech-recognition";
 
 interface BudgetBreakdownEntry {
   category?: string;
@@ -43,6 +49,15 @@ interface ExpenseDraft {
   occurredOn: string;
 }
 
+interface ExpenseParseResponse {
+  category: string | null;
+  amount: number | null;
+  currency: string | null;
+  occurredOn?: string | null;
+  notes?: string | null;
+  confidence?: number | null;
+}
+
 interface TripHistoryProps {
   userId: string | null;
   refreshToken?: number;
@@ -67,7 +82,28 @@ export function TripHistory({ userId, refreshToken = 0, focusTripId = null }: Tr
   });
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<ExpenseDraft | null>(null);
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [secureSpeechContext, setSecureSpeechContext] = useState(true);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [voiceTranscript, setVoiceTranscript] = useState<string | null>(null);
+  const [voiceConfidence, setVoiceConfidence] = useState<number | null>(null);
+  const [parseLoading, setParseLoading] = useState(false);
   const selectedTripId = selectedTrip?.id ?? null;
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const selectedTripCurrency = selectedTrip?.currency ?? null;
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setSpeechSupported(Boolean(getSpeechRecognitionConstructor()));
+      setSecureSpeechContext(isSecureSpeechContext());
+    }
+
+    return () => {
+      recognitionRef.current?.abort();
+      recognitionRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     const loadTrips = async () => {
@@ -75,6 +111,13 @@ export function TripHistory({ userId, refreshToken = 0, focusTripId = null }: Tr
         setTrips([]);
         setSelectedTrip(null);
         setExpenses([]);
+        setVoiceTranscript(null);
+        setVoiceConfidence(null);
+        setVoiceError(null);
+        setParseLoading(false);
+        setIsListening(false);
+        recognitionRef.current?.abort();
+        recognitionRef.current = null;
         return;
       }
 
@@ -120,6 +163,13 @@ export function TripHistory({ userId, refreshToken = 0, focusTripId = null }: Tr
     void loadTrips();
   }, [userId, refreshToken, selectedTripId]);
   const handleViewDetail = useCallback(async (trip: TripSummary) => {
+    recognitionRef.current?.abort();
+    recognitionRef.current = null;
+    setIsListening(false);
+    setVoiceTranscript(null);
+    setVoiceConfidence(null);
+    setVoiceError(null);
+    setParseLoading(false);
     setSelectedTrip({
       ...trip,
       generated_itinerary: null,
@@ -172,6 +222,168 @@ export function TripHistory({ userId, refreshToken = 0, focusTripId = null }: Tr
       void handleViewDetail(targetTrip);
     }
   }, [focusTripId, trips, handleViewDetail, selectedTripId]);
+
+  const parseVoiceContent = async (rawContent: string) => {
+    const transcript = rawContent.trim();
+    if (!transcript) {
+      setVoiceError("未识别到有效语音内容，请重试。");
+      return;
+    }
+
+    const draftCurrency = draft.currency;
+    const draftOccurredOn = draft.occurredOn;
+
+    setParseLoading(true);
+    setVoiceError(null);
+
+    try {
+      const response = await axios.post<ExpenseParseResponse>("/api/expenses/parse", {
+        content: transcript,
+        tripId: selectedTripId ?? undefined,
+        currencyHint: draftCurrency || selectedTripCurrency || undefined,
+        dateHint: draftOccurredOn || undefined
+      });
+
+      const parsed = response.data ?? {};
+
+      setDraft((prev) => {
+        const amountValue =
+          parsed.amount != null && !Number.isNaN(parsed.amount)
+            ? parsed.amount.toString()
+            : prev.amount;
+        const currencySource = parsed.currency ?? (prev.currency || selectedTripCurrency || "CNY");
+        const normalizedCurrency = currencySource ? currencySource.toUpperCase() : "CNY";
+        const hasParsedDate = Object.prototype.hasOwnProperty.call(parsed, "occurredOn");
+        const nextOccurredOn = hasParsedDate ? parsed.occurredOn ?? "" : prev.occurredOn;
+
+        return {
+          category: parsed.category ?? prev.category ?? "",
+          amount: amountValue,
+          currency: normalizedCurrency,
+          occurredOn: nextOccurredOn
+        };
+      });
+
+      setVoiceConfidence(parsed.confidence ?? null);
+      setVoiceError(null);
+    } catch (err) {
+      console.error(err);
+      setVoiceError("语音解析失败，请尝试更清晰地描述或手动填写。");
+    } finally {
+      setParseLoading(false);
+    }
+  };
+
+  const handleVoiceStop = () => {
+    const recognition = recognitionRef.current;
+    if (!recognition) {
+      return;
+    }
+
+    try {
+      recognition.stop();
+    } catch (err) {
+      console.warn("Failed to stop speech recognition", err);
+    } finally {
+      setIsListening(false);
+      recognitionRef.current = null;
+    }
+  };
+
+  const handleVoiceStart = () => {
+    if (isListening) {
+      handleVoiceStop();
+      return;
+    }
+
+    if (!secureSpeechContext) {
+      setVoiceError("Web Speech API 需在 HTTPS 或 localhost 环境下使用。");
+      return;
+    }
+
+    const RecognitionCtor = getSpeechRecognitionConstructor();
+    if (!RecognitionCtor) {
+      setVoiceError("当前浏览器不支持 Web Speech API 语音识别。");
+      return;
+    }
+
+    setVoiceError(null);
+    setVoiceTranscript(null);
+    setVoiceConfidence(null);
+
+    const recognition = new RecognitionCtor();
+    recognition.lang = "zh-CN";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (event: any) => {
+      const collected = Array.from(event.results ?? [])
+        .map((result: any) => result[0]?.transcript ?? "")
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+
+      if (collected) {
+        setVoiceTranscript(collected);
+        setIsListening(false);
+        recognitionRef.current = null;
+        void parseVoiceContent(collected);
+      } else {
+        setVoiceError("未识别到有效语音内容，请重试。");
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      const reason =
+        event.error === "not-allowed"
+          ? "麦克风权限被拒绝，请检查浏览器设置。"
+          : event.error === "no-speech"
+            ? "未检测到语音，请重试。"
+            : "语音识别失败，请稍后再试。";
+      setVoiceError(reason);
+      setIsListening(false);
+      recognitionRef.current = null;
+      try {
+        recognition.stop();
+      } catch (stopError) {
+        console.warn("Failed to stop recognition after error", stopError);
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+
+    try {
+      recognition.start();
+      recognitionRef.current = recognition;
+      setIsListening(true);
+    } catch (err) {
+      console.error(err);
+      setVoiceError("无法启动语音识别，请稍后再试。");
+      recognitionRef.current = null;
+      setIsListening(false);
+    }
+  };
+
+  const voiceStatusMessage = voiceError
+    ? voiceError
+    : isListening
+      ? "正在聆听，请描述例如\"昨天晚餐花了 180 元人民币\"。"
+      : !secureSpeechContext
+        ? "语音识别需在 HTTPS 或 localhost 环境中使用。"
+        : !speechSupported
+          ? "当前浏览器暂不支持 Web Speech API。"
+          : parseLoading
+            ? "已识别文本，正在调用 AI 解析。"
+            : "支持语音描述费用，例如\"把昨晚打车花的一百二记上\"。";
+
+  const voiceConfidenceDisplay =
+    voiceConfidence != null
+      ? Math.round(Math.min(Math.max(voiceConfidence, 0), 1) * 100)
+      : null;
 
   if (!userId) {
     return (
@@ -231,6 +443,9 @@ export function TripHistory({ userId, refreshToken = 0, focusTripId = null }: Tr
       setExpenses((prev) => [response.data, ...prev]);
       setDraft((prev) => ({ ...prev, amount: "", occurredOn: "" }));
       setExpenseError(null);
+      setVoiceTranscript(null);
+      setVoiceConfidence(null);
+      setVoiceError(null);
       applyExpenseDelta(response.data.amount);
     } catch (err) {
       console.error(err);
@@ -389,6 +604,13 @@ export function TripHistory({ userId, refreshToken = 0, focusTripId = null }: Tr
                       setExpenses([]);
                       setExpenseError(null);
                       resetEditState();
+                      setVoiceTranscript(null);
+                      setVoiceConfidence(null);
+                      setVoiceError(null);
+                      setParseLoading(false);
+                      setIsListening(false);
+                      recognitionRef.current?.abort();
+                      recognitionRef.current = null;
                     }}
                     className="self-start rounded-full border border-slate-700/60 px-4 py-1 text-xs text-slate-300 transition hover:border-brand-400/60 hover:text-brand-200"
                   >
@@ -498,6 +720,33 @@ export function TripHistory({ userId, refreshToken = 0, focusTripId = null }: Tr
                     新增
                   </button>
                 </form>
+
+                <div className="expense-voice-controls">
+                  <button
+                    type="button"
+                    onClick={isListening ? handleVoiceStop : handleVoiceStart}
+                    className={clsx(
+                      "voice-button",
+                      isListening && "is-recording",
+                      !isListening && (!speechSupported || !secureSpeechContext) && "is-disabled",
+                      parseLoading && "is-loading"
+                    )}
+                    disabled={
+                      !isListening && (!speechSupported || !secureSpeechContext || parseLoading)
+                    }
+                  >
+                    {isListening ? "结束录音" : parseLoading ? "解析中..." : "语音录入"}
+                  </button>
+                  <span className={clsx("voice-status", voiceError && "is-error")}>
+                    {voiceStatusMessage}
+                  </span>
+                </div>
+                {voiceTranscript ? (
+                  <p className="voice-transcript">
+                    识别结果：{voiceTranscript}
+                    {voiceConfidenceDisplay != null ? ` (置信度 ${voiceConfidenceDisplay}%)` : ""}
+                  </p>
+                ) : null}
 
                 <ul className="expense-list mt-4">
                   {expenses.map((expense) => {

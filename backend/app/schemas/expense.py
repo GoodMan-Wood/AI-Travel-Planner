@@ -34,3 +34,23 @@ class ExpenseUpdate(BaseModel):
     amount: float | None = Field(default=None, ge=0)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     occurred_on: date | None = Field(default=None, alias="occurredOn")
+
+
+class ExpenseParseRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    content: str
+    trip_id: str | None = Field(default=None, alias="tripId")
+    currency_hint: str | None = Field(default=None, alias="currencyHint")
+    date_hint: date | None = Field(default=None, alias="dateHint")
+
+
+class ExpenseParseResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    category: str | None = None
+    amount: float | None = None
+    currency: str | None = None
+    occurred_on: date | None = Field(default=None, alias="occurredOn")
+    notes: str | None = None
+    confidence: float | None = None

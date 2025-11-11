@@ -4,6 +4,12 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "r
 import axios from "axios";
 import clsx from "clsx";
 
+import {
+  getSpeechRecognitionConstructor,
+  isSecureSpeechContext,
+  type SpeechRecognitionInstance,
+} from "../lib/speech-recognition";
+
 interface PlannerResponse {
   itinerary: string;
   budget: {
@@ -21,34 +27,6 @@ interface PlannerFormProps {
 
 const PLACEHOLDER_INPUT = "我想去日本，5 天，预算 1 万元，喜欢美食和动漫，带孩子";
 
-type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
-
-type SpeechRecognitionInstance = {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  maxAlternatives: number;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-  onresult: ((event: any) => void) | null;
-  onerror: ((event: any) => void) | null;
-  onend: (() => void) | null;
-};
-
-function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const anyWindow = window as typeof window & {
-    webkitSpeechRecognition?: SpeechRecognitionConstructor;
-    SpeechRecognition?: SpeechRecognitionConstructor;
-  };
-
-  return anyWindow.SpeechRecognition ?? anyWindow.webkitSpeechRecognition ?? null;
-}
-
 export function PlannerForm({ userId, onPlanCreated }: PlannerFormProps) {
   const [intent, setIntent] = useState(PLACEHOLDER_INPUT);
   const [loading, setLoading] = useState(false);
@@ -64,7 +42,7 @@ export function PlannerForm({ userId, onPlanCreated }: PlannerFormProps) {
   useEffect(() => {
     if (typeof window !== "undefined") {
       setSpeechSupported(Boolean(getSpeechRecognitionConstructor()));
-      setIsSecureContext(window.isSecureContext || window.location.hostname === "localhost");
+      setIsSecureContext(isSecureSpeechContext());
     }
 
     return () => {
@@ -208,7 +186,7 @@ export function PlannerForm({ userId, onPlanCreated }: PlannerFormProps) {
               type="button"
               onClick={isListening ? handleStopListening : handleStartListening}
               className={clsx(
-                "planner-card__mic",
+                "planner-card__mic voice-button",
                 isListening && "is-recording",
                 (!speechSupported || !isSecureContext) && "is-disabled"
               )}

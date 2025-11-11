@@ -400,7 +400,8 @@ textarea {
   transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 
-.planner-card__mic {
+.planner-card__mic,
+.voice-button {
   border: 1px solid rgba(96, 165, 250, 0.5);
   border-radius: 999px;
   padding: 0.75rem 1.6rem;
@@ -412,12 +413,14 @@ textarea {
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
-.planner-card__mic:hover {
+.planner-card__mic:hover,
+.voice-button:hover {
   transform: translateY(-2px);
   box-shadow: 0 26px 52px rgba(37, 99, 235, 0.26);
 }
 
-.planner-card__mic.is-recording {
+.planner-card__mic.is-recording,
+.voice-button.is-recording {
   border-color: rgba(248, 113, 113, 0.6);
   background: rgba(248, 113, 113, 0.2);
   color: #fecaca;
@@ -425,9 +428,18 @@ textarea {
 }
 
 .planner-card__mic.is-disabled,
-.planner-card__mic:disabled {
+.planner-card__mic:disabled,
+.voice-button.is-disabled,
+.voice-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.voice-button.is-loading {
+  cursor: wait;
+  opacity: 0.7;
   transform: none;
   box-shadow: none;
 }
@@ -447,6 +459,34 @@ textarea {
 .planner-card__hint {
   font-size: 0.78rem;
   color: rgba(148, 163, 184, 0.8);
+}
+
+.expense-voice-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.expense-voice-controls .voice-button {
+  padding: 0.65rem 1.4rem;
+}
+
+.voice-status {
+  font-size: 0.76rem;
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.voice-status.is-error {
+  color: rgba(248, 113, 113, 0.85);
+}
+
+.voice-transcript {
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  color: rgba(203, 213, 225, 0.85);
+  word-break: break-word;
 }
 
 .planner-error {
