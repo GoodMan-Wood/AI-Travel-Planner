@@ -1,0 +1,103 @@
+# AI Travel Planner PCD
+
+## Product Vision
+Deliver a web-based AI travel planner that converts natural language and voice intents into tailored itineraries, keeps budgets under control, and stays in sync across devices for a stress-free travel planning journey.
+
+## Strategic Objectives
+- Achieve time-to-itinerary under 30 seconds for 90% of requests.
+- Reach 40% weekly active retention among registered users within six months of launch.
+- Maintain budget estimation accuracy within a 15% variance against real spend feedback.
+
+## Target Users
+- Busy professionals who need quick, reliable itineraries and multi-device access.
+- Family planners coordinating complex preferences, often via voice input.
+- Budget-conscious travelers tracking spending before and during the trip.
+- Experience-driven explorers looking for dynamic recommendations and navigation aid.
+
+## Value Proposition
+- Unified interface combining AI planning, budgeting, and real-time travel support.
+- Voice-capable input to capture nuanced preferences quickly.
+- Visual, map-first itinerary presentation with actionable navigation steps.
+- Cloud-synced plans, enabling seamless continuity across desktop and mobile.
+
+## Differentiators
+- End-to-end workflow from idea capture to on-trip assistance in one application.
+- Deep Chinese-language voice recognition tuned for travel scenarios.
+- Hybrid AI pipeline blending LLM reasoning with rules for reliable cost estimates.
+- Real-time synchronization and collaboration layered onto itinerary management.
+
+## Experience Overview
+1. Discover: User logs in, reviews saved trips, and starts a new plan from dashboard.
+2. Define: User dictates or types destination, dates, budget, companions, and likes.
+3. Design: AI proposes a structured itinerary with transport, lodging, dining, and POI.
+4. Decide: User adjusts plan on the map canvas, locking preferred options.
+5. Deliver: Budget tracker monitors expenses; push guidance assists during travel.
+6. Debrief: Post-trip summary captures learnings and feeds future personalization.
+
+## Capability Matrix
+| Capability | Description | Release Wave |
+| --- | --- | --- |
+| Voice & text intent capture | High-accuracy Mandarin voice input, fallback text form | Wave 1 |
+| AI itinerary generation | LLM-driven plan with transport, lodging, dining, POI, timelines | Wave 1 |
+| Budget estimation & tracking | AI budget forecast, manual/voice expense logging, alerts | Wave 1 |
+| Map-centric visualization | High fidelity map timeline with navigation handoff | Wave 2 |
+| Collaboration & sharing | Multi-user edits, link sharing, comment stream | Wave 3 |
+| Real-time trip assistance | Dynamic notifications on weather, traffic, nearby tips | Wave 3 |
+
+## Recommended Tech Stack
+- Frontend: Next.js (React 18, TypeScript, Tailwind CSS) with SSR and API routes for SEO-sensitive landing pages and a map-centric SPA shell.
+- Backend: FastAPI (Python 3.11) leveraging async workers, LLM orchestration, and itinerary rule engines.
+- Database & Auth: Supabase (managed Postgres, Row Level Security, Edge Functions) powering authentication, itinerary storage, preferences, and real-time updates.
+- Voice Recognition: iFLYTEK cloud speech-to-text for Mandarin accuracy, backed by WebRTC capture in browser.
+- Mapping: Amap (Gaode) JS SDK for mainland China coverage, route planning, POI overlays, and traffic layers.
+- LLM Provider: OpenAI GPT-4.1 mini (or equivalent) for itinerary reasoning, leveraged via server-side prompt pipelines.
+
+## Solution Architecture Overview
+- Next.js web app renders SSR marketing pages and hydrates a SPA dashboard that consumes centralized API endpoints.
+- FastAPI exposes REST and WebSocket interfaces for itinerary creation, budget updates, and notification streaming.
+- Supabase handles authentication (email, phone, third-party), persists itineraries, preferences, and expense logs, and emits real-time channels consumed by the client.
+- FastAPI orchestrates voice transcription via iFLYTEK SDK, normalizes inputs, and feeds structured prompts to OpenAI for itinerary generation and budget breakdown.
+- Mapping layer retrieves POI, routing, and geocoding data from Amap APIs which are cached in Redis to stay within quota limits.
+- Notification worker watches Supabase real-time events and pushes travel reminders through web push services.
+
+## Data & Integration Plan
+- Master tables: users, trips, trip_days, itinerary_items, expenses, preferences, collaborators.
+- Edge functions enforce access policies and compute aggregated budgets before returning responses.
+- Scheduled jobs reconcile expenses, refresh LLM-generated suggestions, and archive completed trips.
+- Observability via Supabase logs, FastAPI structured logging (OpenTelemetry), and client analytics (PostHog).
+
+## Security & Compliance Posture
+- OAuth 2.0 + JWT for session management, with RLS ensuring user-level data isolation.
+- TLS for all traffic; secrets managed in Supabase vault and server-side environment stores.
+- Voice recordings processed transiently, deleted after transcription unless explicit consent for storage.
+- Data residency considerations validated against Chinese regulatory requirements; OpenAI calls routed via compliant proxy if needed.
+
+## Success Metrics
+- Time to itinerary (P95 under 30 seconds).
+- Budget tracking adherence (>= 60% of trips logging at least one expense per day).
+- Active plan sync rate (>= 95% of updates replicate across devices within 5 seconds).
+- Net Promoter Score (target 45+) and AI satisfaction rating per plan (>= 4/5).
+
+## Validation Approach
+- Prototype testing with 10 target users to confirm voice recognition accuracy and itinerary relevance.
+- A/B testing SSR vs CSR landing page to optimize acquisition funnel.
+- Shadow launch with monitoring of API latency, quota usage, and LLM cost per itinerary.
+- Security penetration testing prior to public beta.
+
+## Key Risks & Mitigations
+- OpenAI dependency cost or compliance: evaluate domestic LLM fallback, cache itineraries, negotiate committed spend.
+- Supabase latency from mainland China: set up edge caching, test custom Postgres hosting as contingency.
+- Voice recognition edge cases (dialects, noisy environments): add noise reduction, prompt user for confirmation, support text corrections.
+- Third-party API limits (Amap, iFLYTEK): implement request batching, caching, and graceful degradation states.
+- Team skill gaps on SSR + Python stack: schedule paired development, document integration contracts early.
+
+## Open Questions
+- Required support for non-Chinese languages in MVP?
+- Mobile app roadmap and whether to wrap Next.js experience via TWA/Cordova.
+- Need for offline itinerary access and caching strategy for map tiles.
+
+## Next Steps
+- Finalize vendor contracts (iFLYTEK, Amap, OpenAI) and usage estimates.
+- Build architecture spike: Next.js SSR shell + FastAPI itinerary endpoint + Supabase auth.
+- Define prompt templates and guardrails for itinerary and budget generation.
+- Draft data retention and privacy policies aligned with regulatory requirements.

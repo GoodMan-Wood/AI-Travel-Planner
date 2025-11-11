@@ -1,0 +1,18 @@
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/.turbo/
+
+# Python
+backend/.venv/
+backend/__pycache__/
+backend/.pytest_cache/
+
+# Env files
+*.env
+
+# Misc
+.DS_Store
+.idea/
+.vscode/
+*.log
