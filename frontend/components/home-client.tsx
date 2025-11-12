@@ -1,17 +1,52 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 
 import { supabase } from "../lib/supabase-client";
 import { AuthPanel } from "./auth-panel";
 import { PlannerForm } from "./planner-form";
 import { TripHistory } from "./trip-history";
+import type { MapPoint as TripMapPoint, MapSegment as TripMapSegment } from "./trip-map";
 
 export function HomeClient() {
   const [session, setSession] = useState<Session | null>(null);
   const [historyRefreshToken, setHistoryRefreshToken] = useState(0);
   const [focusTripId, setFocusTripId] = useState<string | null>(null);
+  const [latestMapTripId, setLatestMapTripId] = useState<string | null>(null);
+  const [latestMapCity, setLatestMapCity] = useState<string | null>(null);
+  const [latestMapPoints, setLatestMapPoints] = useState<TripMapPoint[]>([]);
+  const [latestMapSegments, setLatestMapSegments] = useState<TripMapSegment[]>([]);
+  const [latestMapLoading, setLatestMapLoading] = useState(false);
+  const [latestMapError, setLatestMapError] = useState<string | null>(null);
+
+  const resetHomepageMap = useCallback(() => {
+    setLatestMapTripId(null);
+    setLatestMapCity(null);
+    setLatestMapPoints([]);
+    setLatestMapSegments([]);
+    setLatestMapError(null);
+    setLatestMapLoading(false);
+  }, []);
+
+  const handleLatestMapUpdate = useCallback(
+    (update: {
+      tripId: string | null;
+      city: string | null;
+      points: TripMapPoint[];
+      segments: TripMapSegment[];
+      error: string | null;
+      loading: boolean;
+    }) => {
+      setLatestMapTripId(update.tripId);
+      setLatestMapCity(update.city);
+      setLatestMapPoints(update.points);
+      setLatestMapSegments(update.segments);
+      setLatestMapError(update.error);
+      setLatestMapLoading(update.loading);
+    },
+    []
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -39,8 +74,9 @@ export function HomeClient() {
     if (!session) {
       setHistoryRefreshToken(0);
       setFocusTripId(null);
+      resetHomepageMap();
     }
-  }, [session]);
+  }, [session, resetHomepageMap]);
 
   return (
     <div className="page-stack">
@@ -110,15 +146,39 @@ export function HomeClient() {
               userId={session?.user.id ?? null}
               onPlanCreated={(tripId) => {
                 setHistoryRefreshToken((prev) => prev + 1);
-                if (tripId) {
+                if (!tripId) {
+                  resetHomepageMap();
+                  setLatestMapError("行程尚未存档（未登录或数据服务未配置），暂无法生成地图。");
+                  return;
+                }
+
+                if (session?.user?.id) {
                   setFocusTripId(tripId);
+                  setLatestMapTripId(tripId);
+                  setLatestMapCity(null);
+                  setLatestMapPoints([]);
+                  setLatestMapSegments([]);
+                  setLatestMapError(null);
+                  setLatestMapLoading(true);
+                } else {
+                  resetHomepageMap();
+                  setLatestMapTripId(tripId);
+                  setLatestMapCity(null);
+                  setLatestMapError("登录后即可查看行程地图。");
                 }
               }}
+              mapPoints={latestMapPoints}
+              mapSegments={latestMapSegments}
+              mapLoading={latestMapLoading}
+              mapError={latestMapError}
+              mapTripId={latestMapTripId}
+              mapCity={latestMapCity}
             />
             <TripHistory
               userId={session?.user.id ?? null}
               refreshToken={historyRefreshToken}
               focusTripId={focusTripId}
+              onMapDataChange={handleLatestMapUpdate}
             />
           </div>
         </section>

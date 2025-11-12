@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Protocol
 
 from fastapi import Depends
@@ -55,10 +56,124 @@ class ItineraryService:
         return ItineraryResponse(itinerary=itinerary_text, budget=budget, trip_id=trip_id)
 
 
+def _extract_locations_from_prompt(prompt: str) -> list[str]:
+    itinerary_text = prompt.split("行程文本:", 1)[1].strip() if "行程文本:" in prompt else prompt
+    lines = [line.strip().lstrip("- ") for line in itinerary_text.splitlines() if line.strip()]
+    verbs = [
+        "带孩子前往",
+        "带孩子去",
+        "前往",
+        "参观",
+        "游览",
+        "游玩",
+        "探索",
+        "抵达",
+        "入住",
+        "逛",
+        "体验",
+        "造访",
+    ]
+    suffixes = [
+        "附近酒店",
+        "酒店",
+        "主题餐厅",
+        "餐厅",
+        "附近",
+        "游玩一整天",
+        "游玩",
+        "探索",
+        "体验",
+        "纪念品",
+        "返程",
+        "享用寿司",
+        "游逛",
+        "商店",
+        "纪念品店",
+    ]
+    trailing_descriptors = ["动漫", "主题", "亲子", "体验", "路线"]
+
+    locations: list[str] = []
+    seen: set[str] = set()
+
+    for line in lines:
+        content = line.split("：", 1)[1].strip() if "：" in line else line
+        segments = [segment.strip() for segment in re.split(r"[，,。；;]", content) if segment.strip()]
+
+        for segment in segments:
+            phrase = segment
+            for verb in verbs:
+                if verb in phrase:
+                    phrase = phrase.split(verb, 1)[1]
+                    break
+            phrase = phrase.strip()
+            if phrase.startswith(("在", "于")):
+                phrase = phrase[1:].strip()
+            if not phrase:
+                continue
+
+            for suffix in suffixes:
+                if phrase.endswith(suffix) and len(phrase) > len(suffix):
+                    phrase = phrase[: -len(suffix)].strip()
+
+            phrase = phrase.strip("- 第天日1234567890")
+            if not phrase:
+                continue
+
+            match = re.search(r"[A-Za-z\u4e00-\u9fff·]{2,20}", phrase)
+            candidate = match.group(0).strip() if match else phrase
+            candidate = candidate.strip("第天日1234567890")
+            for descriptor in trailing_descriptors:
+                if candidate.endswith(descriptor) and len(candidate) > len(descriptor):
+                    candidate = candidate[: -len(descriptor)].strip()
+
+            if len(candidate) < 2:
+                continue
+
+            if not candidate or candidate in seen:
+                continue
+
+            seen.add(candidate)
+            locations.append(candidate)
+            if len(locations) >= 12:
+                return locations
+
+    return locations
+
+
+def _guess_primary_city(itinerary_text: str, locations: list[str]) -> str | None:
+    patterns = [
+        r"抵达(?P<city>[A-Za-z\u4e00-\u9fff·]{2,20})",
+        r"到达(?P<city>[A-Za-z\u4e00-\u9fff·]{2,20})",
+        r"入住(?P<city>[A-Za-z\u4e00-\u9fff·]{2,20})",
+        r"前往(?P<city>[A-Za-z\u4e00-\u9fff·]{2,20})",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, itinerary_text)
+        if match:
+            city = match.group("city").strip("，。、. \n")
+            if city:
+                return city
+
+    for location in locations:
+        candidate = location.strip()
+        if len(candidate) >= 2:
+            return candidate
+
+    return None
+
+
 async def default_llm_response(prompt: str) -> dict[str, object]:
     """Fallback LLM response used when provider credentials are absent."""
 
     await asyncio.sleep(0.1)
+
+    if "\"locations\"" in prompt and "行程文本" in prompt:
+        itinerary_text = prompt.split("行程文本:", 1)[1].strip() if "行程文本:" in prompt else prompt
+        locations = _extract_locations_from_prompt(prompt)
+        city = _guess_primary_city(itinerary_text, locations)
+        return {"locations": locations, "city": city}
+
     return {
         "itinerary": "1. 抵达并办理入住\n2. 探索城市主要景点\n3. 品尝当地特色美食",
         "budget": {

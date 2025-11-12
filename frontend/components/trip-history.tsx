@@ -9,6 +9,7 @@ import {
   isSecureSpeechContext,
   type SpeechRecognitionInstance,
 } from "../lib/speech-recognition";
+import type { MapPoint as TripMapPoint, MapSegment as TripMapSegment } from "./trip-map";
 
 interface BudgetBreakdownEntry {
   category?: string;
@@ -62,9 +63,22 @@ interface TripHistoryProps {
   userId: string | null;
   refreshToken?: number;
   focusTripId?: string | null;
+  onMapDataChange?: (update: {
+    tripId: string | null;
+    city: string | null;
+    points: TripMapPoint[];
+    segments: TripMapSegment[];
+    error: string | null;
+    loading: boolean;
+  }) => void;
 }
 
-export function TripHistory({ userId, refreshToken = 0, focusTripId = null }: TripHistoryProps) {
+export function TripHistory({
+  userId,
+  refreshToken = 0,
+  focusTripId = null,
+  onMapDataChange
+}: TripHistoryProps) {
   const [trips, setTrips] = useState<TripSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,6 +105,7 @@ export function TripHistory({ userId, refreshToken = 0, focusTripId = null }: Tr
   const [parseLoading, setParseLoading] = useState(false);
   const selectedTripId = selectedTrip?.id ?? null;
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const focusFetchRef = useRef<string | null>(null);
   const selectedTripCurrency = selectedTrip?.currency ?? null;
 
   useEffect(() => {
@@ -118,6 +133,8 @@ export function TripHistory({ userId, refreshToken = 0, focusTripId = null }: Tr
         setIsListening(false);
         recognitionRef.current?.abort();
         recognitionRef.current = null;
+        focusFetchRef.current = null;
+        onMapDataChange?.({ tripId: null, city: null, points: [], segments: [], error: null, loading: false });
         return;
       }
 
@@ -161,7 +178,7 @@ export function TripHistory({ userId, refreshToken = 0, focusTripId = null }: Tr
     };
 
     void loadTrips();
-  }, [userId, refreshToken, selectedTripId]);
+  }, [userId, refreshToken, selectedTripId, onMapDataChange]);
   const handleViewDetail = useCallback(async (trip: TripSummary) => {
     recognitionRef.current?.abort();
     recognitionRef.current = null;
@@ -210,18 +227,106 @@ export function TripHistory({ userId, refreshToken = 0, focusTripId = null }: Tr
     } finally {
       setExpensesLoading(false);
     }
-  }, [userId]);
+
+    if (userId) {
+      onMapDataChange?.({ tripId: trip.id, city: null, points: [], segments: [], error: null, loading: true });
+      try {
+        const mapResponse = await axios.get<{
+          tripId: string;
+          points: TripMapPoint[];
+          segments?: TripMapSegment[];
+          city?: string | null;
+        }>(
+          `/api/maps/trips/${trip.id}`,
+          {
+            params: { userId }
+          }
+        );
+        const points = mapResponse.data.points ?? [];
+        const segments = mapResponse.data.segments ?? [];
+        const city = mapResponse.data.city ?? null;
+        if (points.length === 0) {
+          const emptyMessage = "行程未提供可识别的地点，请尝试补充详细景点信息。";
+          onMapDataChange?.({
+            tripId: mapResponse.data.tripId ?? trip.id,
+            city,
+            points: [],
+            segments: [],
+            error: emptyMessage,
+            loading: false
+          });
+        } else {
+          onMapDataChange?.({
+            tripId: mapResponse.data.tripId ?? trip.id,
+            city,
+            points,
+            segments,
+            error: null,
+            loading: false
+          });
+        }
+      } catch (err) {
+        console.error(err);
+        const message = axios.isAxiosError(err) && err.response?.status === 503
+          ? "地图服务未配置百度 AK，无法生成行程地图。"
+          : "地图数据加载失败。";
+        onMapDataChange?.({ tripId: trip.id, city: null, points: [], segments: [], error: message, loading: false });
+      }
+    }
+  }, [userId, onMapDataChange]);
 
   useEffect(() => {
-    if (!focusTripId || focusTripId === selectedTripId || trips.length === 0) {
+    if (!focusTripId || focusTripId === selectedTripId) {
+      focusFetchRef.current = null;
       return;
     }
 
     const targetTrip = trips.find((trip) => trip.id === focusTripId);
     if (targetTrip) {
+      focusFetchRef.current = null;
       void handleViewDetail(targetTrip);
+      return;
     }
-  }, [focusTripId, trips, handleViewDetail, selectedTripId]);
+
+    if (!userId || focusFetchRef.current === focusTripId) {
+      return;
+    }
+
+    focusFetchRef.current = focusTripId;
+    let cancelled = false;
+
+    const fetchAndSelect = async () => {
+      try {
+        const response = await axios.get<TripDetail>(`/api/trips/${focusTripId}`, {
+          params: { userId }
+        });
+        if (cancelled) {
+          return;
+        }
+        focusFetchRef.current = null;
+        void handleViewDetail(response.data);
+      } catch (err) {
+        if (!cancelled) {
+          console.error(err);
+          focusFetchRef.current = null;
+        }
+      }
+    };
+
+    void fetchAndSelect();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [focusTripId, selectedTripId, trips, userId, handleViewDetail]);
+
+  useEffect(() => {
+    if (!userId || focusTripId || selectedTrip || trips.length === 0) {
+      return;
+    }
+
+    void handleViewDetail(trips[0]);
+  }, [userId, focusTripId, selectedTrip, trips, handleViewDetail]);
 
   const parseVoiceContent = async (rawContent: string) => {
     const transcript = rawContent.trim();
@@ -611,6 +716,7 @@ export function TripHistory({ userId, refreshToken = 0, focusTripId = null }: Tr
                       setIsListening(false);
                       recognitionRef.current?.abort();
                       recognitionRef.current = null;
+                        onMapDataChange?.({ tripId: null, city: null, points: [], segments: [], error: null, loading: false });
                     }}
                     className="self-start rounded-full border border-slate-700/60 px-4 py-1 text-xs text-slate-300 transition hover:border-brand-400/60 hover:text-brand-200"
                   >

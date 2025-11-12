@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     supabase_service_role_key: str | None = None
     supabase_jwt_secret: str | None = None
     redis_url: str | None = "redis://localhost:6379/0"
+    baidu_map_ak: str | None = None
 
 
 @lru_cache

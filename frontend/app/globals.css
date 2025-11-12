@@ -298,6 +298,106 @@ textarea {
   gap: 2rem;
 }
 
+.planner-primary {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+@media (min-width: 1024px) {
+  .planner-primary {
+    flex-direction: row;
+  }
+
+  .planner-primary > * {
+    flex: 1 1 0;
+  }
+}
+
+.planner-map-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  border-radius: 36px;
+  border: 1px solid rgba(100, 116, 139, 0.28);
+  background: linear-gradient(150deg, rgba(14, 23, 42, 0.92), rgba(24, 37, 59, 0.78));
+  padding: 2.8rem;
+  box-shadow: 0 45px 110px rgba(8, 15, 35, 0.4);
+}
+
+.planner-map-card__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.planner-map-card__eyebrow {
+  font-size: 0.68rem;
+  letter-spacing: 0.48em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.65);
+}
+
+.planner-map-card__title {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.planner-map-card__badge {
+  border-radius: 999px;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.15);
+  color: #bfdbfe;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.35rem 0.8rem;
+}
+
+.planner-map-card__description {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: rgba(203, 213, 225, 0.82);
+}
+
+.planner-map-card__status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.planner-map-card__status-item {
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem;
+}
+
+.planner-map-card__status-item--loading {
+  background: rgba(59, 130, 246, 0.18);
+  color: #bfdbfe;
+}
+
+.planner-map-card__status-item--error {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fecaca;
+}
+
+.planner-map-card__status-item--muted {
+  background: rgba(71, 85, 105, 0.25);
+  color: rgba(203, 213, 225, 0.75);
+}
+
+.planner-map-card__canvas {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .planner-card {
   position: relative;
   overflow: hidden;

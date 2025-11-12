@@ -9,6 +9,7 @@ import {
   isSecureSpeechContext,
   type SpeechRecognitionInstance,
 } from "../lib/speech-recognition";
+import { TripMap, type MapPoint as TripMapPoint, type MapSegment as TripMapSegment } from "./trip-map";
 
 interface PlannerResponse {
   itinerary: string;
@@ -23,11 +24,26 @@ interface PlannerResponse {
 interface PlannerFormProps {
   userId: string | null;
   onPlanCreated?: (tripId: string | null) => void;
+  mapPoints?: TripMapPoint[];
+  mapSegments?: TripMapSegment[];
+  mapLoading?: boolean;
+  mapError?: string | null;
+  mapTripId?: string | null;
+  mapCity?: string | null;
 }
 
 const PLACEHOLDER_INPUT = "我想去日本，5 天，预算 1 万元，喜欢美食和动漫，带孩子";
 
-export function PlannerForm({ userId, onPlanCreated }: PlannerFormProps) {
+export function PlannerForm({
+  userId,
+  onPlanCreated,
+  mapPoints = [],
+  mapSegments = [],
+  mapLoading = false,
+  mapError = null,
+  mapTripId = null,
+  mapCity = null
+}: PlannerFormProps) {
   const [intent, setIntent] = useState(PLACEHOLDER_INPUT);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PlannerResponse | null>(null);
@@ -153,60 +169,104 @@ export function PlannerForm({ userId, onPlanCreated }: PlannerFormProps) {
 
   return (
     <div className="planner-module">
-      <form onSubmit={handleSubmit} className="planner-card">
-        <div className="planner-card__content">
-          <header className="planner-card__header">
-            <div>
-              <p className="planner-card__eyebrow">STEP · 01</p>
-              <h2 className="planner-card__title">描述你的旅行计划</h2>
-            </div>
-            <p className="planner-card__description">
-              输入想去的地点、行程天数、预算以及偏好，我们将即时为你组合每日路线、预算拆分与支出规划。
-            </p>
-          </header>
-          <textarea
-            id="intent"
-            name="intent"
-            value={intent}
-            onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setIntent(event.target.value)}
-            rows={5}
-            className="planner-card__textarea"
-            placeholder={PLACEHOLDER_INPUT}
-            disabled={loading}
-          />
-          <div className="planner-card__actions">
-            <button
-              type="submit"
-              className={clsx("planner-card__submit", loading && "is-loading")}
+      <div className="planner-primary">
+        <form onSubmit={handleSubmit} className="planner-card">
+          <div className="planner-card__content">
+            <header className="planner-card__header">
+              <div>
+                <p className="planner-card__eyebrow">STEP · 01</p>
+                <h2 className="planner-card__title">描述你的旅行计划</h2>
+              </div>
+              <p className="planner-card__description">
+                输入想去的地点、行程天数、预算以及偏好，我们将即时为你组合每日路线、预算拆分与支出规划。
+              </p>
+            </header>
+            <textarea
+              id="intent"
+              name="intent"
+              value={intent}
+              onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setIntent(event.target.value)}
+              rows={5}
+              className="planner-card__textarea"
+              placeholder={PLACEHOLDER_INPUT}
               disabled={loading}
-            >
-              {loading ? "生成中..." : "生成行程方案"}
-            </button>
-            <button
-              type="button"
-              onClick={isListening ? handleStopListening : handleStartListening}
-              className={clsx(
-                "planner-card__mic voice-button",
-                isListening && "is-recording",
-                (!speechSupported || !isSecureContext) && "is-disabled"
-              )}
-              disabled={loading || !speechSupported || !isSecureContext}
-            >
-              {isListening ? "结束录音" : "语音输入"}
-            </button>
-            <span className="planner-card__hint">
-              {isListening
-                ? "语音识别中，请开始讲话..."
-                : !isSecureContext
-                  ? "请通过 HTTPS 或在 localhost 下使用语音识别"
-                  : !speechSupported
-                    ? "当前浏览器暂不支持 Web Speech API"
-                    : "支持语音或文字描述旅程意向"}
-            </span>
+            />
+            <div className="planner-card__actions">
+              <button
+                type="submit"
+                className={clsx("planner-card__submit", loading && "is-loading")}
+                disabled={loading}
+              >
+                {loading ? "生成中..." : "生成行程方案"}
+              </button>
+              <button
+                type="button"
+                onClick={isListening ? handleStopListening : handleStartListening}
+                className={clsx(
+                  "planner-card__mic voice-button",
+                  isListening && "is-recording",
+                  (!speechSupported || !isSecureContext) && "is-disabled"
+                )}
+                disabled={loading || !speechSupported || !isSecureContext}
+              >
+                {isListening ? "结束录音" : "语音输入"}
+              </button>
+              <span className="planner-card__hint">
+                {isListening
+                  ? "语音识别中，请开始讲话..."
+                  : !isSecureContext
+                    ? "请通过 HTTPS 或在 localhost 下使用语音识别"
+                    : !speechSupported
+                      ? "当前浏览器暂不支持 Web Speech API"
+                      : "支持语音或文字描述旅程意向"}
+              </span>
+            </div>
+            {voiceError ? <p className="planner-card__voice-error">{voiceError}</p> : null}
           </div>
-          {voiceError ? <p className="planner-card__voice-error">{voiceError}</p> : null}
-        </div>
-      </form>
+        </form>
+
+        <section className="planner-map-card">
+          <header className="planner-map-card__header">
+            <div>
+              <p className="planner-map-card__eyebrow">STEP · 02</p>
+              <h2 className="planner-map-card__title">行程地图</h2>
+            </div>
+            {mapTripId ? <span className="planner-map-card__badge">行程 ID：{mapTripId}</span> : null}
+          </header>
+          <p className="planner-map-card__description">
+            最新生成的行程地点会实时绘制在下方地图中，方便快速确认路线与地理分布。
+          </p>
+          <div className="planner-map-card__status">
+            {mapLoading ? (
+              <span className="planner-map-card__status-item planner-map-card__status-item--loading">
+                地图数据加载中...
+              </span>
+            ) : null}
+            {mapError ? (
+              <span className="planner-map-card__status-item planner-map-card__status-item--error">
+                {mapError}
+              </span>
+            ) : null}
+            {!mapLoading && !mapError && mapCity ? (
+              <span className="planner-map-card__status-item">
+                当前城市：{mapCity}
+              </span>
+            ) : null}
+            {!mapLoading && !mapError && !mapTripId ? (
+              <span className="planner-map-card__status-item planner-map-card__status-item--muted">
+                生成行程后将自动展示地图。
+              </span>
+            ) : null}
+          </div>
+          <TripMap
+            points={mapPoints}
+            segments={mapSegments}
+            className="planner-map-card__canvas"
+            height="28rem"
+            minHeight="24rem"
+          />
+        </section>
+      </div>
 
       {error ? <div className="planner-error">{error}</div> : null}
 

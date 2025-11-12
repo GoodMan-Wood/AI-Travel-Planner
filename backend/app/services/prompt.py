@@ -102,3 +102,39 @@ def build_expense_parse_prompt(
         f"{hint_section}"
         f"用户描述: {content.strip()}"
     )
+
+
+ITINERARY_LOCATIONS_PROMPT = """
+你是一名旅行导游，请从行程文本中提取需要在地图上标注的地点名称，并判断行程主要所在的城市。
+请遵循以下要求：
+1. 返回地点名称时仅包含地点本身，不要附加说明。
+2. 根据它们在行程中的出现顺序输出，最多 12 个。
+3. 若行程涉及多个城市，请选择行程主要停留或首日抵达的城市。
+4. 即使无法确定城市，也必须保留字段并设置为 null。
+
+返回值必须严格符合以下 JSON Schema：
+{
+    "type": "object",
+    "required": ["city", "locations"],
+    "properties": {
+        "city": {
+            "type": ["string", "null"],
+            "description": "行程主要所在的城市，若无法判断请返回 null"
+        },
+        "locations": {
+            "type": "array",
+            "items": {"type": "string"}
+        }
+    }
+}
+
+若无法提取任何地点，请返回 {"city": null, "locations": []}。
+不要附加额外说明文字。
+""".strip()
+
+
+def build_itinerary_locations_prompt(*, itinerary: str, intent: str | None = None) -> str:
+    return (
+        f"{ITINERARY_LOCATIONS_PROMPT}\n"
+        f"行程文本:\n{itinerary.strip()}"
+    )

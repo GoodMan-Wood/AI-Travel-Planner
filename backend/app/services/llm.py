@@ -15,7 +15,7 @@ class LLMClient(Protocol):
 
 
 DEFAULT_MODELSCOPE_BASE_URL = "https://api-inference.modelscope.cn/v1"
-DEFAULT_MODELSCOPE_MODEL_ID = "deepseek-ai/DeepSeek-V3.2-Exp"
+DEFAULT_MODELSCOPE_MODEL_ID = "deepseek-ai/DeepSeek-V3.1"
 
 
 class ModelScopeLLMClient:
