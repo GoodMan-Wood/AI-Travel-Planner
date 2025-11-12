@@ -11,6 +11,7 @@ __pycache__/
 
 # Env files
 *.env
+ENV_SETUP_GUIDE.md
 
 # Misc
 .DS_Store
