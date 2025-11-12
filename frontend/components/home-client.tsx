@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 
-import { supabase } from "../lib/supabase-client";
+import { isSupabaseConfigured, supabase } from "../lib/supabase-client";
 import { AuthPanel } from "./auth-panel";
 import { PlannerForm } from "./planner-form";
 import { TripHistory } from "./trip-history";
@@ -19,6 +19,9 @@ export function HomeClient() {
   const [latestMapSegments, setLatestMapSegments] = useState<TripMapSegment[]>([]);
   const [latestMapLoading, setLatestMapLoading] = useState(false);
   const [latestMapError, setLatestMapError] = useState<string | null>(null);
+
+  const supabaseClient = supabase;
+  const supabaseEnabled = isSupabaseConfigured && Boolean(supabaseClient);
 
   const resetHomepageMap = useCallback(() => {
     setLatestMapTripId(null);
@@ -49,9 +52,15 @@ export function HomeClient() {
   );
 
   useEffect(() => {
-    let mounted = true;
+    if (!supabaseClient || !supabaseEnabled) {
+      setSession(null);
+      return undefined;
+    }
 
-    supabase.auth.getSession().then(({ data }) => {
+    let mounted = true;
+    const client = supabaseClient;
+
+    client.auth.getSession().then(({ data }) => {
       if (!mounted) {
         return;
       }
@@ -60,7 +69,7 @@ export function HomeClient() {
 
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = client.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
     });
 
@@ -68,7 +77,7 @@ export function HomeClient() {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [supabaseClient, supabaseEnabled]);
 
   useEffect(() => {
     if (!session) {
@@ -86,7 +95,7 @@ export function HomeClient() {
             <span className="top-bar__logo">TravelMind</span>
             <span className="top-bar__subtitle">AI 智能旅行规划</span>
           </div>
-          <AuthPanel session={session} variant="nav" />
+          <AuthPanel session={session} variant="nav" supabaseAvailable={supabaseEnabled} />
         </div>
       </header>
 
@@ -143,7 +152,7 @@ export function HomeClient() {
         <section id="planner" className="planner-section">
           <div className="planner-stack">
             <PlannerForm
-              userId={session?.user.id ?? null}
+              userId={supabaseEnabled ? session?.user.id ?? null : null}
               onPlanCreated={(tripId) => {
                 setHistoryRefreshToken((prev) => prev + 1);
                 if (!tripId) {
@@ -175,7 +184,7 @@ export function HomeClient() {
               mapCity={latestMapCity}
             />
             <TripHistory
-              userId={session?.user.id ?? null}
+              userId={supabaseEnabled ? session?.user.id ?? null : null}
               refreshToken={historyRefreshToken}
               focusTripId={focusTripId}
               onMapDataChange={handleLatestMapUpdate}

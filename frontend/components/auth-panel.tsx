@@ -8,9 +8,10 @@ import { supabase } from "../lib/supabase-client";
 interface AuthPanelProps {
   session: Session | null;
   variant?: "card" | "nav";
+  supabaseAvailable?: boolean;
 }
 
-export function AuthPanel({ session, variant = "card" }: AuthPanelProps) {
+export function AuthPanel({ session, variant = "card", supabaseAvailable = true }: AuthPanelProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"signIn" | "signUp">("signIn");
@@ -19,7 +20,15 @@ export function AuthPanel({ session, variant = "card" }: AuthPanelProps) {
   const [panelOpen, setPanelOpen] = useState(false);
   const dropdownId = "user-nav-dropdown";
 
+  const supabaseClient = supabaseAvailable && supabase ? supabase : null;
+  const supabaseReady = Boolean(supabaseClient);
+
   const handleAuth = async () => {
+    if (!supabaseReady || !supabaseClient) {
+      setStatus("尚未配置 Supabase，暂无法登录。");
+      return;
+    }
+
     setLoading(true);
     setStatus(null);
 
@@ -30,14 +39,14 @@ export function AuthPanel({ session, variant = "card" }: AuthPanelProps) {
       }
 
       if (mode === "signIn") {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
         if (error) {
           setStatus(error.message);
           return;
         }
         setStatus("登录成功。");
       } else {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { error } = await supabaseClient.auth.signUp({ email, password });
         if (error) {
           setStatus(error.message);
           return;
@@ -54,7 +63,12 @@ export function AuthPanel({ session, variant = "card" }: AuthPanelProps) {
   };
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    if (!supabaseReady || !supabaseClient) {
+      setStatus("尚未配置 Supabase，暂无法注销。");
+      return;
+    }
+
+    await supabaseClient.auth.signOut();
     setStatus("已退出登录。");
     if (variant === "nav") {
       setPanelOpen(true);
@@ -62,13 +76,18 @@ export function AuthPanel({ session, variant = "card" }: AuthPanelProps) {
   };
 
   useEffect(() => {
+    if (!supabaseReady) {
+      setPanelOpen(false);
+      return;
+    }
+
     if (variant === "nav" && session) {
       setPanelOpen(false);
       setEmail("");
       setPassword("");
       setMode("signIn");
     }
-  }, [session, variant]);
+  }, [session, variant, supabaseReady]);
 
   if (variant === "nav") {
     return (
@@ -89,14 +108,15 @@ export function AuthPanel({ session, variant = "card" }: AuthPanelProps) {
           <div className={`user-nav__auth${panelOpen ? " is-open" : ""}`}>
             <button
               type="button"
-              onClick={() => setPanelOpen((prev) => !prev)}
+              onClick={() => (supabaseReady ? setPanelOpen((prev) => !prev) : null)}
               className="user-nav__toggle"
               aria-expanded={panelOpen}
               aria-controls={dropdownId}
+              disabled={!supabaseReady}
             >
-              {panelOpen ? "收起" : "登录 / 注册"}
+              {!supabaseReady ? "登录暂不可用" : panelOpen ? "收起" : "登录 / 注册"}
             </button>
-            {panelOpen ? (
+            {panelOpen && supabaseReady ? (
               <div id={dropdownId} className="user-nav__dropdown">
                 <div className="user-nav__fields">
                   <label className="user-nav__label" htmlFor="auth-email-nav">
@@ -110,7 +130,7 @@ export function AuthPanel({ session, variant = "card" }: AuthPanelProps) {
                     className="user-nav__input"
                     placeholder="you@example.com"
                     autoComplete="email"
-                    disabled={loading}
+                    disabled={loading || !supabaseReady}
                   />
                 </div>
                 <div className="user-nav__fields">
@@ -125,7 +145,7 @@ export function AuthPanel({ session, variant = "card" }: AuthPanelProps) {
                     className="user-nav__input"
                     placeholder="不少于 6 位"
                     autoComplete="current-password"
-                    disabled={loading}
+                    disabled={loading || !supabaseReady}
                   />
                 </div>
                 <div className="user-nav__actions">
@@ -133,7 +153,7 @@ export function AuthPanel({ session, variant = "card" }: AuthPanelProps) {
                     type="button"
                     onClick={handleAuth}
                     className="user-nav__button user-nav__button--primary"
-                    disabled={loading}
+                    disabled={loading || !supabaseReady}
                   >
                     {loading ? "提交中..." : mode === "signIn" ? "登录" : "注册"}
                   </button>
@@ -141,6 +161,7 @@ export function AuthPanel({ session, variant = "card" }: AuthPanelProps) {
                     type="button"
                     onClick={() => setMode(mode === "signIn" ? "signUp" : "signIn")}
                     className="user-nav__link"
+                    disabled={!supabaseReady}
                   >
                     {mode === "signIn" ? "我要注册" : "已有账号? 去登录"}
                   </button>
@@ -148,6 +169,7 @@ export function AuthPanel({ session, variant = "card" }: AuthPanelProps) {
                 {status ? <p className="user-nav__status">{status}</p> : null}
               </div>
             ) : null}
+            {!supabaseReady ? <p className="user-nav__status">Supabase 未配置，登录不可用。</p> : null}
           </div>
         )}
       </div>
@@ -190,7 +212,7 @@ export function AuthPanel({ session, variant = "card" }: AuthPanelProps) {
               className="w-full rounded-lg border border-slate-700/70 bg-slate-950/80 p-3 text-sm text-slate-100 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="you@example.com"
               autoComplete="email"
-              disabled={loading}
+              disabled={loading || !supabaseReady}
             />
           </div>
           <div className="space-y-2">
@@ -205,7 +227,7 @@ export function AuthPanel({ session, variant = "card" }: AuthPanelProps) {
               className="w-full rounded-lg border border-slate-700/70 bg-slate-950/80 p-3 text-sm text-slate-100 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="不少于 6 位"
               autoComplete="current-password"
-              disabled={loading}
+              disabled={loading || !supabaseReady}
             />
           </div>
           <div className="flex flex-wrap items-center gap-4">
@@ -213,7 +235,7 @@ export function AuthPanel({ session, variant = "card" }: AuthPanelProps) {
               type="button"
               onClick={handleAuth}
               className="rounded-full bg-brand-500 px-5 py-2 text-sm font-semibold text-white shadow transition hover:-translate-y-0.5 hover:bg-brand-400 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={loading}
+              disabled={loading || !supabaseReady}
             >
               {mode === "signIn" ? "登录" : "注册"}
             </button>
@@ -221,6 +243,7 @@ export function AuthPanel({ session, variant = "card" }: AuthPanelProps) {
               type="button"
               onClick={() => setMode(mode === "signIn" ? "signUp" : "signIn")}
               className="text-xs font-medium text-brand-300 underline"
+              disabled={!supabaseReady}
             >
               {mode === "signIn" ? "我要注册" : "已有账号? 去登录"}
             </button>
@@ -229,6 +252,11 @@ export function AuthPanel({ session, variant = "card" }: AuthPanelProps) {
       )}
       {status ? (
         <p className="mt-4 rounded-lg bg-slate-950/70 p-3 text-xs text-slate-400">{status}</p>
+      ) : null}
+      {!supabaseReady ? (
+        <p className="mt-4 rounded-lg bg-slate-950/70 p-3 text-xs text-red-300/80">
+          尚未配置 Supabase 服务，登录与注册功能暂不可用。
+        </p>
       ) : null}
     </section>
   );
